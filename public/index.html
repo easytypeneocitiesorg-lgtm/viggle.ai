@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Viggle Animate Clone</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0f0f0f;
+      color: #f0f0f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+    }
+    h1 { margin-bottom: 8px; font-weight: 600; }
+    .sub { color: #888; margin-bottom: 40px; }
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 16px;
+      padding: 32px;
+      width: 100%;
+      max-width: 520px;
+    }
+    label { display: block; margin-bottom: 6px; font-size: 14px; color: #aaa; }
+    input[type="file"], input[type="text"] {
+      width: 100%;
+      padding: 12px;
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #fff;
+      margin-bottom: 20px;
+    }
+    button {
+      width: 100%;
+      padding: 14px;
+      background: #7c3aed;
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #6d28d9; }
+    button:disabled { background: #444; cursor: not-allowed; }
+    .status {
+      margin-top: 24px;
+      padding: 16px;
+      background: #111;
+      border-radius: 8px;
+      font-size: 14px;
+      min-height: 60px;
+      white-space: pre-wrap;
+    }
+    video {
+      width: 100%;
+      margin-top: 20px;
+      border-radius: 12px;
+      background: #000;
+    }
+    .progress { color: #a78bfa; }
+    .error { color: #f87171; }
+    .success { color: #4ade80; }
+  </style>
+</head>
+<body>
+  <h1>Viggle Animate</h1>
+  <p class="sub">Character image + driving video → animated result</p>
+
+  <div class="card">
+    <label>Character Image (PNG / JPG)</label>
+    <input type="file" id="image" accept="image/*" />
+
+    <label>Driving Video (MP4, 5–15 s)</label>
+    <input type="file" id="video" accept="video/mp4,video/*" />
+
+    <label>Optional Prompt</label>
+    <input type="text" id="prompt" placeholder="e.g. keep the same outfit and background" />
+
+    <button id="go">Generate Animation</button>
+
+    <div class="status" id="status">Ready. Upload files and click Generate.</div>
+    <video id="result" controls hidden></video>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById("status");
+    const resultEl = document.getElementById("result");
+    const btn = document.getElementById("go");
+
+    btn.addEventListener("click", async () => {
+      const image = document.getElementById("image").files[0];
+      const video = document.getElementById("video").files[0];
+      const prompt = document.getElementById("prompt").value.trim();
+
+      if (!image || !video) {
+        statusEl.className = "status error";
+        statusEl.textContent = "Both image and video are required.";
+        return;
+      }
+
+      btn.disabled = true;
+      resultEl.hidden = true;
+      statusEl.className = "status progress";
+      statusEl.textContent = "Uploading & starting job…";
+
+      const form = new FormData();
+      form.append("character_image", image);
+      form.append("driving_video", video);
+      if (prompt) form.append("prompt", prompt);
+
+      try {
+        const startRes = await fetch("/api/animate", { method: "POST", body: form });
+        const startData = await startRes.json();
+
+        if (!startRes.ok) {
+          throw new Error(startData.error?.message || JSON.stringify(startData));
+        }
+
+        const jobId = startData.id;
+        statusEl.textContent = `Job started: ${jobId}\nPolling…`;
+
+        // Poll every 4 seconds
+        const poll = async () => {
+          const res = await fetch(`/api/status/${jobId}`);
+          const data = await res.json();
+
+          if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+
+          statusEl.textContent = `Status: ${data.status}` +
+            (data.progress != null ? ` (${data.progress}%)` : "");
+
+          if (data.status === "ready") {
+            statusEl.className = "status success";
+            statusEl.textContent = "Done! Video ready.";
+            resultEl.src = data.video_url;
+            resultEl.hidden = false;
+            btn.disabled = false;
+            return;
+          }
+
+          if (data.status === "failed" || data.status === "cancelled") {
+            throw new Error(data.error?.message || data.status);
+          }
+
+          setTimeout(poll, 4000);
+        };
+
+        poll();
+      } catch (err) {
+        statusEl.className = "status error";
+        statusEl.textContent = "Error: " + err.message;
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
